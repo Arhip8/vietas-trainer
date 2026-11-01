@@ -62,6 +62,7 @@ footer { padding: 24px 0 0; color: #53676b; text-align: center; font-size: .8rem
 .page-navigation { margin-bottom: 20px; }
 .home-actions > button, .theory-navigation > button { flex: 1 1 200px; }
 .optional-theory { margin-top: 14px; }
+.learning-form { margin-top: 18px; }
 .theory > section { margin-top: 32px; }
 .theory section > p + p, .theory section > .notice + p { margin-top: 14px; }
 .theory h3 { font-size: 1.15rem; margin-bottom: 14px; }

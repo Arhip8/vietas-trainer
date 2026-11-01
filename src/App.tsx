@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Theory } from './components/Theory.tsx'
+import { LearningPractice } from './components/LearningPractice.tsx'
+import { createPractice, updatePractice } from './learning/practice.ts'
+import type { PracticeAction, PracticeState } from './learning/practice.ts'
+import { equationText, number } from './presentation.ts'
 import { BASE_POINTS, DEFAULT_RULES } from './core/rules.ts'
 import { createTraining, getTotalPoints, updateTraining } from './core/training.ts'
-import type { Difficulty, Equation, FieldValidation, TrainingAction, TrainingState } from './core/types.ts'
+import type { Difficulty, FieldValidation, TrainingAction, TrainingState } from './core/types.ts'
 import './App.css'
 
 const LEVELS: Record<Difficulty, string> = {
@@ -10,14 +14,6 @@ const LEVELS: Record<Difficulty, string> = {
 }
 const MAX_POINTS = DEFAULT_RULES.reduce((sum, rule) => sum + rule.count * BASE_POINTS[rule.difficulty], 0)
 const TASK_COUNT = DEFAULT_RULES.reduce((sum, rule) => sum + rule.count, 0)
-const number = (value: number) => value.toLocaleString('ru-RU')
-
-// Presentation only: coefficients and roots come from the core.
-function equationText({ p, q }: Equation): string {
-  const linear = p === 0 ? '' : ` ${p < 0 ? '−' : '+'} ${Math.abs(p) === 1 ? '' : Math.abs(p)}x`
-  const constant = q === 0 ? '' : ` ${q < 0 ? '−' : '+'} ${Math.abs(q)}`
-  return `x²${linear}${constant} = 0`
-}
 
 function fieldError(field: FieldValidation | undefined): string | null {
   if (!field || field.status === 'valid') return null
@@ -152,12 +148,14 @@ function Results({ training, onRestart }: { training: TrainingState; onRestart: 
 
 function App() {
   const [training, setTraining] = useState<TrainingState | null>(null)
-  const [screen, setScreen] = useState<'home' | 'theory' | 'training'>('home')
+  const [screen, setScreen] = useState<'home' | 'theory' | 'training' | 'practice'>('home')
+  const [practice, setPractice] = useState<PracticeState | null>(null)
   const homeHeading = useRef<HTMLHeadingElement>(null)
   // Screen navigation is separate from the core's completion status: the last
   // task's feedback stays visible until the student explicitly opens results.
   const [showResults, setShowResults] = useState(false)
-  const unfinished = screen === 'training' && training?.status === 'active'
+  const unfinished = (screen === 'training' && training?.status === 'active')
+    || (screen === 'practice' && practice?.phase !== 'completed')
 
   useEffect(() => {
     if (screen === 'home') homeHeading.current?.focus()
@@ -175,19 +173,31 @@ function App() {
   }, [unfinished])
 
   const navigate = (target: 'home' | 'theory') => {
-    if (unfinished && !window.confirm('Тренировка ещё не завершена. При выходе ответы и прогресс будут потеряны. Выйти из тренировки?')) return
+    if (unfinished && !window.confirm('Занятие ещё не завершено. При выходе ответы и прогресс будут потеряны. Выйти?')) return
     setTraining(null)
+    setPractice(null)
     setShowResults(false)
     setScreen(target)
   }
   const start = () => {
     const next = createTraining(crypto.randomUUID())
     setTraining(next)
+    setPractice(null)
     setShowResults(false)
     setScreen('training')
   }
   const dispatch = (action: TrainingAction) => {
     setTraining((previous) => previous ? updateTraining(previous, action) : previous)
+  }
+  const startPractice = () => {
+    const next = createPractice()
+    setPractice(next)
+    setTraining(null)
+    setShowResults(false)
+    setScreen('practice')
+  }
+  const dispatchPractice = (action: PracticeAction) => {
+    setPractice((previous) => previous ? updatePractice(previous, action) : previous)
   }
   const completedCount = training?.tasks.filter((task) => task.status !== 'open').length ?? 0
 
@@ -201,22 +211,22 @@ function App() {
         <button type="button" className="secondary" onClick={() => navigate('home')}>На главную</button>
         <button type="button" className="secondary" disabled={screen === 'theory'} onClick={() => navigate('theory')}>Изучить теорию</button>
       </nav>}
-      {screen === 'theory' ? <Theory onHome={() => navigate('home')} onStart={start} /> : screen === 'home' ? (
+      {screen === 'practice' && practice ? <LearningPractice state={practice} onAction={dispatchPractice} onStartTest={start} onHome={() => navigate('home')} /> : screen === 'theory' ? <Theory onHome={() => navigate('home')} onStart={start} /> : screen === 'home' ? (
         <section className="card welcome">
           <span className="eyebrow">От простого к сложному</span>
-          <h2 ref={homeHeading} tabIndex={-1}>Два корня. Девять шагов.</h2>
+          <h2 ref={homeHeading} tabIndex={-1}>Пойми правило. Попробуй. Проверь себя.</h2>
           <p className="intro">Потренируйся находить целые корни квадратных уравнений с помощью теоремы Виета.</p>
-          <div className="welcome-stats"><span><strong>{TASK_COUNT}</strong> заданий</span><span><strong>3</strong> уровня</span><span><strong>{MAX_POINTS}</strong> баллов максимум</span></div>
+          <div className="welcome-stats"><span><strong>{TASK_COUNT}</strong> заданий проверки</span><span><strong>3</strong> задания с обучением</span><span><strong>{MAX_POINTS}</strong> баллов за проверку</span></div>
           <ul className="rules-list">
-            <li>Ошибаться можно: попытки не уменьшают баллы.</li>
-            <li>Подсказка оставляет половину баллов за задание.</li>
-            <li>Готовое решение завершает задание с нулём баллов.</li>
+            <li>В обучающей практике — три задания по шагам, без баллов и штрафов за помощь.</li>
+            <li>В проверке знаний — девять заданий. Ошибки не уменьшают баллы, подсказка оставляет половину, готовое решение — ноль.</li>
           </ul>
           <div className="home-actions">
             <button type="button" className="secondary full" onClick={() => navigate('theory')}>Изучить теорию</button>
-            <button type="button" className="primary full" onClick={start}>Начать тренировку</button>
+            <button type="button" className="secondary full" onClick={startPractice}>Практика с обучением</button>
+            <button type="button" className="primary full" onClick={start}>Проверить знания</button>
           </div>
-          <p className="muted small optional-theory">Уже знаешь правило? Начинай тренировку сразу — теория необязательна.</p>
+          <p className="muted small optional-theory">Выбирай любой раздел — теория и практика необязательны перед проверкой знаний.</p>
         </section>
       ) : training && (showResults ? <Results training={training} onRestart={start} /> : <>
         <section className="training-progress" aria-label="Прогресс тренировки">

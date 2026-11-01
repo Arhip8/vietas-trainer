@@ -90,7 +90,7 @@ export function Theory({ onHome, onStart }: { onHome: () => void; onStart: () =>
       </section>
       <div className="theory-navigation">
         <button type="button" className="secondary" onClick={onHome}>На главную</button>
-        <button type="button" className="primary" onClick={onStart}>Начать тренировку</button>
+        <button type="button" className="primary" onClick={onStart}>Проверить знания</button>
       </div>
     </article>
   )
