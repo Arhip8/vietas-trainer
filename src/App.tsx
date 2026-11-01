@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { Theory } from './components/Theory.tsx'
 import { LearningPractice } from './components/LearningPractice.tsx'
 import { createPractice, updatePractice } from './learning/practice.ts'
-import type { PracticeAction, PracticeState } from './learning/practice.ts'
+import type { PracticeAction } from './learning/practice.ts'
 import { equationText, number } from './presentation.ts'
+import { useActiveSession } from './persistence/useActiveSession.ts'
 import { BASE_POINTS, DEFAULT_RULES } from './core/rules.ts'
 import { createTraining, getTotalPoints, updateTraining } from './core/training.ts'
 import type { Difficulty, FieldValidation, TrainingAction, TrainingState } from './core/types.ts'
@@ -147,13 +148,15 @@ function Results({ training, onRestart }: { training: TrainingState; onRestart: 
 }
 
 function App() {
-  const [training, setTraining] = useState<TrainingState | null>(null)
-  const [screen, setScreen] = useState<'home' | 'theory' | 'training' | 'practice'>('home')
-  const [practice, setPractice] = useState<PracticeState | null>(null)
+  const { session, error: storageError, commit, update, flush } = useActiveSession()
+  const [idleScreen, setIdleScreen] = useState<'home' | 'theory'>('home')
+  const screen = session?.mode ?? idleScreen
+  const training = session?.mode === 'training' ? session.state : null
+  const practice = session?.mode === 'practice' ? session.state : null
   const homeHeading = useRef<HTMLHeadingElement>(null)
   // Screen navigation is separate from the core's completion status: the last
   // task's feedback stays visible until the student explicitly opens results.
-  const [showResults, setShowResults] = useState(false)
+  const showResults = session?.mode === 'training' && session.showResults
   const unfinished = (screen === 'training' && training?.status === 'active')
     || (screen === 'practice' && practice?.phase !== 'completed')
 
@@ -162,42 +165,44 @@ function App() {
   }, [screen])
 
   useEffect(() => {
-    if (!unfinished) return
+    if (!unfinished || !storageError) return
     const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      if (flush() === null) return
       event.preventDefault()
       // Browsers display their own confirmation text for reload/close/back.
       event.returnValue = ''
     }
     window.addEventListener('beforeunload', warnBeforeLeaving)
     return () => window.removeEventListener('beforeunload', warnBeforeLeaving)
-  }, [unfinished])
+  }, [unfinished, storageError, flush])
 
   const navigate = (target: 'home' | 'theory') => {
     if (unfinished && !window.confirm('Занятие ещё не завершено. При выходе ответы и прогресс будут потеряны. Выйти?')) return
-    setTraining(null)
-    setPractice(null)
-    setShowResults(false)
-    setScreen(target)
+    if (session && !commit(null)) return
+    setIdleScreen(target)
   }
   const start = () => {
     const next = createTraining(crypto.randomUUID())
-    setTraining(next)
-    setPractice(null)
-    setShowResults(false)
-    setScreen('training')
+    commit({ version: 1, id: next.id, mode: 'training', state: next, showResults: false }, true)
   }
   const dispatch = (action: TrainingAction) => {
-    setTraining((previous) => previous ? updateTraining(previous, action) : previous)
+    update((previous) => {
+      if (previous?.mode !== 'training') return previous
+      const state = updateTraining(previous.state, action)
+      return state === previous.state ? previous : { ...previous, state }
+    })
   }
   const startPractice = () => {
     const next = createPractice()
-    setPractice(next)
-    setTraining(null)
-    setShowResults(false)
-    setScreen('practice')
+    commit({ version: 1, id: crypto.randomUUID(), mode: 'practice', state: next }, true)
   }
   const dispatchPractice = (action: PracticeAction) => {
-    setPractice((previous) => previous ? updatePractice(previous, action) : previous)
+    const sessionId = session?.id
+    update((previous) => {
+      if (previous?.mode !== 'practice' || previous.id !== sessionId) return previous
+      const state = updatePractice(previous.state, action)
+      return state === previous.state ? previous : { ...previous, state }
+    })
   }
   const completedCount = training?.tasks.filter((task) => task.status !== 'open').length ?? 0
 
@@ -207,6 +212,11 @@ function App() {
         <span className="brand-mark" aria-hidden="true">x²</span>
         <div><p className="eyebrow">Алгебра · 8 класс</p><h1>Тренажёр по теореме Виета</h1></div>
       </header>
+      {storageError && <p className="notice error storage-warning" role="status">
+        {storageError === 'invalid' ? 'Сохранённые данные повреждены или несовместимы. Открыта главная страница.'
+          : storageError === 'conflict' ? 'Сохранение изменилось в другой вкладке. Эта вкладка не перезаписывает его; текущий прогресс здесь не сохранён.'
+            : 'Не удалось прочитать, сохранить или удалить прогресс. Не рассчитывай на восстановление после закрытия страницы. Если выход не произошёл, попробуй ещё раз после проверки настроек браузера.'}
+      </p>}
       {screen !== 'home' && <nav className="page-navigation" aria-label="Разделы приложения">
         <button type="button" className="secondary" onClick={() => navigate('home')}>На главную</button>
         <button type="button" className="secondary" disabled={screen === 'theory'} onClick={() => navigate('theory')}>Изучить теорию</button>
@@ -233,7 +243,7 @@ function App() {
           <div><span>Завершено: {completedCount} из {training.tasks.length}</span><strong>Баллы: {number(getTotalPoints(training))} / {MAX_POINTS}</strong></div>
           <progress value={completedCount} max={training.tasks.length} aria-label={`Завершено ${completedCount} из ${training.tasks.length} заданий`} />
         </section>
-        <Exercise key={`${training.id}:${training.currentIndex}`} training={training} onAction={dispatch} onResults={() => setShowResults(true)} />
+        <Exercise key={`${training.id}:${training.currentIndex}`} training={training} onAction={dispatch} onResults={() => update((previous) => previous?.mode === 'training' && previous.state.status === 'completed' ? { ...previous, showResults: true } : previous)} />
       </>)}
       <footer>Учись в своём темпе. Каждая попытка — практика.</footer>
     </main>
