@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Theory } from './components/Theory.tsx'
 import { BASE_POINTS, DEFAULT_RULES } from './core/rules.ts'
 import { createTraining, getTotalPoints, updateTraining } from './core/training.ts'
 import type { Difficulty, Equation, FieldValidation, TrainingAction, TrainingState } from './core/types.ts'
@@ -151,13 +152,39 @@ function Results({ training, onRestart }: { training: TrainingState; onRestart: 
 
 function App() {
   const [training, setTraining] = useState<TrainingState | null>(null)
+  const [screen, setScreen] = useState<'home' | 'theory' | 'training'>('home')
+  const homeHeading = useRef<HTMLHeadingElement>(null)
   // Screen navigation is separate from the core's completion status: the last
   // task's feedback stays visible until the student explicitly opens results.
   const [showResults, setShowResults] = useState(false)
+  const unfinished = screen === 'training' && training?.status === 'active'
+
+  useEffect(() => {
+    if (screen === 'home') homeHeading.current?.focus()
+  }, [screen])
+
+  useEffect(() => {
+    if (!unfinished) return
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      // Browsers display their own confirmation text for reload/close/back.
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warnBeforeLeaving)
+    return () => window.removeEventListener('beforeunload', warnBeforeLeaving)
+  }, [unfinished])
+
+  const navigate = (target: 'home' | 'theory') => {
+    if (unfinished && !window.confirm('Тренировка ещё не завершена. При выходе ответы и прогресс будут потеряны. Выйти из тренировки?')) return
+    setTraining(null)
+    setShowResults(false)
+    setScreen(target)
+  }
   const start = () => {
     const next = createTraining(crypto.randomUUID())
     setTraining(next)
     setShowResults(false)
+    setScreen('training')
   }
   const dispatch = (action: TrainingAction) => {
     setTraining((previous) => previous ? updateTraining(previous, action) : previous)
@@ -170,10 +197,14 @@ function App() {
         <span className="brand-mark" aria-hidden="true">x²</span>
         <div><p className="eyebrow">Алгебра · 8 класс</p><h1>Тренажёр по теореме Виета</h1></div>
       </header>
-      {!training ? (
+      {screen !== 'home' && <nav className="page-navigation" aria-label="Разделы приложения">
+        <button type="button" className="secondary" onClick={() => navigate('home')}>На главную</button>
+        <button type="button" className="secondary" disabled={screen === 'theory'} onClick={() => navigate('theory')}>Изучить теорию</button>
+      </nav>}
+      {screen === 'theory' ? <Theory onHome={() => navigate('home')} onStart={start} /> : screen === 'home' ? (
         <section className="card welcome">
           <span className="eyebrow">От простого к сложному</span>
-          <h2>Два корня. Девять шагов.</h2>
+          <h2 ref={homeHeading} tabIndex={-1}>Два корня. Девять шагов.</h2>
           <p className="intro">Потренируйся находить целые корни квадратных уравнений с помощью теоремы Виета.</p>
           <div className="welcome-stats"><span><strong>{TASK_COUNT}</strong> заданий</span><span><strong>3</strong> уровня</span><span><strong>{MAX_POINTS}</strong> баллов максимум</span></div>
           <ul className="rules-list">
@@ -181,15 +212,19 @@ function App() {
             <li>Подсказка оставляет половину баллов за задание.</li>
             <li>Готовое решение завершает задание с нулём баллов.</li>
           </ul>
-          <button type="button" className="primary full" onClick={start}>Начать тренировку</button>
+          <div className="home-actions">
+            <button type="button" className="secondary full" onClick={() => navigate('theory')}>Изучить теорию</button>
+            <button type="button" className="primary full" onClick={start}>Начать тренировку</button>
+          </div>
+          <p className="muted small optional-theory">Уже знаешь правило? Начинай тренировку сразу — теория необязательна.</p>
         </section>
-      ) : showResults ? <Results training={training} onRestart={start} /> : <>
+      ) : training && (showResults ? <Results training={training} onRestart={start} /> : <>
         <section className="training-progress" aria-label="Прогресс тренировки">
           <div><span>Завершено: {completedCount} из {training.tasks.length}</span><strong>Баллы: {number(getTotalPoints(training))} / {MAX_POINTS}</strong></div>
           <progress value={completedCount} max={training.tasks.length} aria-label={`Завершено ${completedCount} из ${training.tasks.length} заданий`} />
         </section>
         <Exercise key={`${training.id}:${training.currentIndex}`} training={training} onAction={dispatch} onResults={() => setShowResults(true)} />
-      </>}
+      </>)}
       <footer>Учись в своём темпе. Каждая попытка — практика.</footer>
     </main>
   )

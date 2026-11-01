@@ -58,6 +58,25 @@ caption { text-align: left; font-weight: 650; margin-bottom: 12px; }
 th, td { padding: 12px 8px; border-bottom: 1px solid #e5ece8; }
 thead th { color: #53676b; font-weight: 600; }
 footer { padding: 24px 0 0; color: #53676b; text-align: center; font-size: .8rem; }
+.page-navigation, .home-actions, .theory-navigation { display: flex; gap: 12px; flex-wrap: wrap; }
+.page-navigation { margin-bottom: 20px; }
+.home-actions > button, .theory-navigation > button { flex: 1 1 200px; }
+.optional-theory { margin-top: 14px; }
+.theory > section { margin-top: 32px; }
+.theory section > p + p, .theory section > .notice + p { margin-top: 14px; }
+.theory h3 { font-size: 1.15rem; margin-bottom: 14px; }
+.formula { font-family: Georgia, serif; font-size: clamp(1.2rem, 4vw, 1.6rem); overflow-wrap: anywhere; }
+.theory .hint { margin-block: 18px; }
+.theory-examples { display: grid; gap: 12px; margin-top: 18px; }
+.theory details { border: 1px solid #dce5e0; border-radius: 12px; overflow: hidden; }
+.theory summary { padding: 18px; font-weight: 600; cursor: pointer; background: #f6f8f6; }
+.theory summary:hover { background: #eaf3ed; }
+.theory summary:focus-visible { outline: 3px solid #b77a16; outline-offset: -4px; }
+.theory details ol { margin: 18px; padding-left: 22px; }
+.theory li + li { margin-top: 12px; }
+.example-answer { padding: 0 18px 18px; color: #20573b; font-weight: 650; }
+.theory-list { padding-left: 20px; margin: 0; }
+.theory-navigation { margin-top: 32px; padding-top: 24px; border-top: 1px solid #e5ece8; }
 @media (max-width: 480px) {
   .app-shell { width: calc(100% - 24px); padding-top: 24px; }
   .app-header { gap: 12px; margin-bottom: 24px; }
