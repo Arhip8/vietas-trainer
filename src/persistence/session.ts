@@ -21,6 +21,9 @@ const record = (value: unknown): value is Record<string, unknown> => typeof valu
 const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value)
 const id = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0
 const input = (value: unknown): value is [string, string] => Array.isArray(value) && value.length === 2 && value.every((item) => typeof item === 'string')
+function oneOf<T extends string>(value: unknown, options: readonly T[]): value is T {
+  return typeof value === 'string' && options.includes(value as T)
+}
 function same(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true
   if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((item, i) => same(item, b[i]))
@@ -28,7 +31,7 @@ function same(a: unknown, b: unknown): boolean {
   return Object.keys(a).length === Object.keys(b).length && Object.keys(a).every((key) => Object.hasOwn(b, key) && same(a[key], b[key]))
 }
 function validTask(value: unknown): value is Task {
-  if (!record(value) || !id(value.id) || !['easy', 'medium', 'hard'].includes(String(value.difficulty)) || !record(value.equation)) return false
+  if (!record(value) || !id(value.id) || !oneOf(value.difficulty, ['easy', 'medium', 'hard']) || !record(value.equation)) return false
   const equation = value.equation
   if (!Array.isArray(equation.roots) || equation.roots.length !== 2 || !equation.roots.every(integer)) return false
   const [a, b] = equation.roots
@@ -42,7 +45,7 @@ function uniqueTasks(tasks: readonly Task[]): boolean {
 }
 
 function validTraining(value: unknown): value is TrainingState {
-  if (!record(value) || !id(value.id) || !['active', 'completed'].includes(String(value.status))
+  if (!record(value) || !id(value.id) || !oneOf(value.status, ['active', 'completed'])
     || !integer(value.currentIndex) || value.currentIndex < 0 || value.currentIndex > 8
     || !Array.isArray(value.tasks) || value.tasks.length !== 9) return false
   const tasks: Task[] = []
@@ -50,7 +53,7 @@ function validTraining(value: unknown): value is TrainingState {
     const item: unknown = value.tasks[index]
     if (!record(item) || !validTask(item.task) || !input(item.input)
       || !integer(item.incorrectAttempts) || item.incorrectAttempts < 0 || typeof item.hintUsed !== 'boolean'
-      || !['open', 'solved', 'solution-viewed'].includes(String(item.status))) return false
+      || !oneOf(item.status, ['open', 'solved', 'solution-viewed'])) return false
     if (item.task.difficulty !== (index < 3 ? 'easy' : index < 6 ? 'medium' : 'hard')) return false
     tasks.push(item.task)
     const checked = checkAnswer(item.task.equation, item.input)
@@ -73,16 +76,16 @@ function validPractice(value: unknown): value is PracticeState {
   if (!record(value) || !Array.isArray(value.tasks) || value.tasks.length !== 3
     || !value.tasks.every(validTask) || !uniqueTasks(value.tasks)
     || !integer(value.currentIndex) || value.currentIndex < 0 || value.currentIndex > 2
-    || !['sum', 'product', 'roots'].includes(String(value.step))
-    || !['answering', 'task-complete', 'completed'].includes(String(value.phase))
+    || !oneOf(value.step, ['sum', 'product', 'roots'])
+    || !oneOf(value.phase, ['answering', 'task-complete', 'completed'])
     || !input(value.input) || typeof value.hintShown !== 'boolean' || typeof value.solutionViewed !== 'boolean'
-    || ![null, 'correct', 'incorrect', 'invalid'].includes(value.feedback as string | null)) return false
+    || !(value.feedback === null || oneOf(value.feedback, ['correct', 'incorrect', 'invalid']))) return false
   if (value.tasks.some((task, i) => task.difficulty !== ['easy', 'medium', 'hard'][i])) return false
   if (value.phase === 'completed' && value.currentIndex !== 2) return false
   if (value.solutionViewed) return value.phase !== 'answering' && value.feedback === null
   const expected = value.step === 'roots'
     ? checkAnswer(value.tasks[value.currentIndex].equation, value.input).status
-    : checkCoefficientAnswer(value.tasks[value.currentIndex].equation, value.step as 'sum' | 'product', value.input[0])
+    : checkCoefficientAnswer(value.tasks[value.currentIndex].equation, value.step, value.input[0])
   if (value.feedback !== null && value.feedback !== expected) return false
   if (value.phase !== 'answering') return value.step === 'roots' && value.feedback === 'correct'
   return !(value.step === 'roots' && value.feedback === 'correct')
@@ -122,17 +125,19 @@ export function createSessionStorage(getStorage: () => StoragePort) {
       try {
         const storage = getStorage()
         const current = storage.getItem(SESSION_KEY)
-        if (!replace && current !== expected) return 'conflict'
-        const raw = session === null ? null : JSON.stringify(session)
-        // A failed new-session write must not leave an older session to restore.
-        if (replace && current !== null && current !== raw) {
-          storage.removeItem(SESSION_KEY)
-          expected = null
+        // An empty store may become accessible after an initial read failure.
+        if (!replace && current !== (expected ?? null)) {
+          // This tab's save has already been superseded. Leaving it must not
+          // delete the other tab's data or trap the learner on the old screen.
+          return session === null ? null : 'conflict'
         }
+        const raw = session === null ? null : JSON.stringify(session)
+        // setItem replaces one value atomically. Preserve the old snapshot if
+        // writing fails; the hook then retains the existing session on screen.
         if (raw === null) storage.removeItem(SESSION_KEY)
         else storage.setItem(SESSION_KEY, raw)
-        if (storage.getItem(SESSION_KEY) !== raw) return 'conflict'
         expected = raw
+        if (storage.getItem(SESSION_KEY) !== raw) return 'conflict'
         return null
       } catch {
         return 'unavailable'

@@ -163,7 +163,8 @@ test('old tabs cannot overwrite or delete a newly started session or different r
   newTab.load()
   newTab.save(training('new'), true)
   assert.equal(oldTab.save(solvedTraining()), 'conflict')
-  assert.equal(oldTab.save(null), 'conflict')
+  // Leaving the stale tab must succeed without deleting the newer session.
+  assert.equal(oldTab.save(null), null)
   assert.equal(newTab.load().session?.id, 'new')
 })
 
@@ -185,14 +186,53 @@ test('unavailable storage, blocked access, quota failures and deletion failures 
   assert.equal(store.load().error, 'unavailable')
 })
 
-test('a quota failure starting a new session does not restore the older one', () => {
+test('a failed replacement preserves the existing saved session while the UI retains it', () => {
   const memory = new MemoryStorage()
   const store = createSessionStorage(() => memory)
   store.load()
   store.save(training('old'), true)
   memory.failWrite = true
   assert.equal(store.save(training('new'), true), 'unavailable')
-  assert.equal(createSessionStorage(() => memory).load().session, null)
+  assert.deepEqual(createSessionStorage(() => memory).load().session, training('old'))
+})
+
+test('storage can recover from an initial read failure when no saved session exists', () => {
+  const memory = new MemoryStorage()
+  memory.failRead = true
+  const store = createSessionStorage(() => memory)
+  assert.equal(store.load().error, 'unavailable')
+  memory.failRead = false
+  assert.equal(store.save(training()), null)
+})
+
+test('a verification read failure does not permanently block later saves', () => {
+  const memory = new MemoryStorage()
+  const port: StoragePort = {
+    getItem: (key) => memory.getItem(key),
+    removeItem: (key) => memory.removeItem(key),
+    setItem: (key, value) => { memory.setItem(key, value); memory.failRead = true },
+  }
+  const store = createSessionStorage(() => port)
+  store.load()
+  assert.equal(store.save(training(), true), 'unavailable')
+  memory.failRead = false
+  // The next write reaches verification instead of failing an ownership check.
+  assert.equal(store.save(solvedTraining()), 'unavailable')
+  memory.failRead = false
+  assert.deepEqual(decodeSession(memory.value!), solvedTraining())
+})
+
+test('enum-shaped arrays in corrupted JSON are rejected rather than coerced to strings', () => {
+  const saved = training()
+  for (const patch of [{ status: ['active'] }]) {
+    assert.equal(decodeSession(JSON.stringify({ ...saved, state: { ...saved.state, ...patch } })), null)
+  }
+  const tasks = saved.state.tasks.map((item, index) => index === 0 ? { ...item, status: ['open'] } : item)
+  assert.equal(decodeSession(JSON.stringify({ ...saved, state: { ...saved.state, tasks } })), null)
+  const practice = { version: 1, id: 'practice', mode: 'practice', state: createPractice(() => 0) }
+  for (const patch of [{ phase: ['answering'] }, { step: ['sum'] }]) {
+    assert.equal(decodeSession(JSON.stringify({ ...practice, state: { ...practice.state, ...patch } })), null)
+  }
 })
 
 test('starting another mode replaces the single saved session with a new identifier', () => {

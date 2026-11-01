@@ -12,6 +12,24 @@ dist
 dist-ssr
 *.local
 
+# Local secrets (public Vite variables must never contain secrets)
+.env
+.env.*
+!.env.example
+.npmrc
+.aws/
+*.pem
+*.key
+
+# Temporary files and generated caches
+*.tsbuildinfo
+*.tmp
+*.temp
+*.bak
+coverage/
+.cache/
+.vite/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
