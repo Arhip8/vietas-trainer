@@ -21,6 +21,12 @@ export interface GenerationRule {
 export const MAX_ROOT_MAGNITUDE = 100
 export const DIFFICULTY_ORDER: readonly Difficulty[] = ['easy', 'medium', 'hard']
 
+export const BASE_POINTS: Readonly<Record<Difficulty, number>> = Object.freeze({
+  easy: 1,
+  medium: 2,
+  hard: 3,
+})
+
 export const DEFAULT_RULES: readonly GenerationRule[] = Object.freeze(([
   { difficulty: 'easy', pattern: 'positive', minAbs: 1, maxAbs: 6, count: 3 },
   { difficulty: 'medium', pattern: 'negative', minAbs: 1, maxAbs: 9, count: 1 },
